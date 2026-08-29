@@ -1,0 +1,40 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "confluence-knowledge-poc"
+version = "0.1.0"
+description = "Confluence REST API to pgvector knowledge-ingestion proof of concept"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "beautifulsoup4>=4.13,<5",
+  "httpx>=0.28,<1",
+  "langchain-openai>=0.3,<2",
+  "langchain-text-splitters>=0.3,<2",
+  "pgvector>=0.4,<1",
+  "psycopg[binary,pool]>=3.2,<4",
+  "sentence-transformers>=5,<7",
+  "typer>=0.16,<1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.4,<10", "pytest-cov>=6,<8", "ruff>=0.12,<1"]
+
+[project.scripts]
+knowledge-poc = "knowledge_poc.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/knowledge_poc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM"]

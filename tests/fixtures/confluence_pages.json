@@ -1,0 +1,17 @@
+{
+  "results": [
+    {
+      "id": "123456",
+      "status": "current",
+      "title": "Offline Operation Requirements",
+      "spaceId": "98765",
+      "parentId": "100",
+      "subtype": "live",
+      "version": {"number": 7, "createdAt": "2026-08-29T08:00:00Z"},
+      "body": {"storage": {"value": "<h2>Connectivity</h2><p>The vessel must operate offline for fourteen days.</p>"}},
+      "_links": {"webui": "/spaces/ARCH/pages/123456"}
+    }
+  ],
+  "_links": {}
+}
+

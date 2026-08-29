@@ -1,0 +1,2 @@
+"""PostgreSQL and pgvector persistence."""
+

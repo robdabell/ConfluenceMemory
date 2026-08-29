@@ -1,0 +1,49 @@
+name: confluence-knowledge-poc
+
+x-app: &app
+  build: .
+  env_file: .env
+  environment:
+    HF_HOME: /models
+  volumes:
+    - model_cache:/models
+  depends_on:
+    postgres:
+      condition: service_healthy
+  restart: "no"
+
+services:
+  postgres:
+    image: pgvector/pgvector:0.8.6-pg17-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-knowledge_poc}
+      POSTGRES_USER: ${POSTGRES_USER:-knowledge}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-knowledge}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-knowledge} -d ${POSTGRES_DB:-knowledge_poc}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    <<: *app
+    command: ["migrate"]
+    profiles: ["tools"]
+
+  poller:
+    <<: *app
+    command: ["poll"]
+    restart: unless-stopped
+
+  cli:
+    <<: *app
+    profiles: ["tools"]
+    entrypoint: ["knowledge-poc"]
+
+volumes:
+  postgres_data:
+  model_cache:
