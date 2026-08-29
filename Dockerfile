@@ -10,15 +10,18 @@ RUN addgroup --system app && adduser --system --ingroup app app \
     && mkdir -p /models && chown app:app /models
 
 COPY pyproject.toml README.md ./
-COPY src ./src
-COPY migrations ./migrations
 RUN pip install --index-url https://download.pytorch.org/whl/cpu "torch==2.13.0+cpu" \
-    && pip install .
+    && python -c "import subprocess,sys,tomllib; p=tomllib.load(open('pyproject.toml','rb')); subprocess.check_call([sys.executable,'-m','pip','install',*p['project']['dependencies']])"
+
+COPY src ./src
+RUN pip install --no-deps .
+
+COPY migrations ./migrations
 
 FROM base AS test
 
 COPY tests ./tests
-RUN pip install '.[dev]'
+RUN python -c "import subprocess,sys,tomllib; p=tomllib.load(open('pyproject.toml','rb')); subprocess.check_call([sys.executable,'-m','pip','install',*p['project']['optional-dependencies']['dev']])"
 
 USER app
 ENTRYPOINT ["pytest"]
