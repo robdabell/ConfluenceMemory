@@ -16,12 +16,11 @@ search:
 	docker compose --profile tools run --rm cli search "$(Q)"
 
 test:
-	docker build --target runtime -t confluence-knowledge-poc:test .
-	docker run --rm --entrypoint sh confluence-knowledge-poc:test -c "pip install '.[dev]' && pytest"
+	docker build --target test -t confluence-knowledge-poc:test .
+	docker run --rm confluence-knowledge-poc:test
 
 lint:
 	python -m ruff check src tests
 
 down:
 	docker compose down
-
