@@ -26,7 +26,7 @@ class Settings:
     poll_interval_seconds: int
 
     @classmethod
-    def from_env(cls, require_confluence: bool = False) -> "Settings":
+    def from_env(cls, require_confluence: bool = False) -> Settings:
         base_url = os.getenv("CONFLUENCE_BASE_URL")
         email = os.getenv("CONFLUENCE_EMAIL")
         token = os.getenv("CONFLUENCE_API_TOKEN")

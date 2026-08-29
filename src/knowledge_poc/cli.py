@@ -53,7 +53,9 @@ def _sync_once(full: bool) -> None:
 def migrate() -> None:
     """Apply SQL migrations."""
     settings = Settings.from_env()
-    migrations_dir = Path("/app/migrations") if Path("/app/migrations").exists() else Path("migrations")
+    migrations_dir = (
+        Path("/app/migrations") if Path("/app/migrations").exists() else Path("migrations")
+    )
     for migration in _database(settings).migrate(migrations_dir):
         typer.echo(f"Applied {migration}")
 

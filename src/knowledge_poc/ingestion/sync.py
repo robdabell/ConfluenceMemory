@@ -71,11 +71,15 @@ class Synchroniser:
             )
             result.embedded_pages += 1
             result.embedded_chunks += len(chunks)
-            logger.info("Indexed page %s version %s (%s chunks)", page.page_id, page.version, len(chunks))
+            logger.info(
+                "Indexed page %s version %s (%s chunks)",
+                page.page_id,
+                page.version,
+                len(chunks),
+            )
 
         if full:
             result.tombstoned = self.database.tombstone_missing(space_id, seen)
         if newest:
             self.database.set_watermark(scope, newest)
         return result
-

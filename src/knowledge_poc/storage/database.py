@@ -49,7 +49,10 @@ class Database:
     def get_page_state(self, page_id: str) -> dict | None:
         with self.connect() as connection:
             return connection.execute(
-                "SELECT version, content_hash, structure_hash, deleted_at FROM source_page WHERE page_id=%s",
+                """
+                SELECT version, content_hash, structure_hash, deleted_at
+                FROM source_page WHERE page_id=%s
+                """,
                 (page_id,),
             ).fetchone()
 
