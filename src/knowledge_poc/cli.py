@@ -9,7 +9,7 @@ import typer
 
 from knowledge_poc.config import Settings
 from knowledge_poc.confluence.client import ConfluenceClient
-from knowledge_poc.embeddings.client import create_embeddings
+from knowledge_poc.embeddings.client import Embeddings, create_embeddings
 from knowledge_poc.ingestion.sync import Synchroniser
 from knowledge_poc.storage.database import Database
 
@@ -18,6 +18,19 @@ app = typer.Typer(help="Confluence to pgvector knowledge PoC")
 
 def _database(settings: Settings) -> Database:
     return Database(settings.database_url)
+
+
+def _run_sync(
+    settings: Settings, client: ConfluenceClient, embeddings: Embeddings, full: bool
+) -> None:
+    result = Synchroniser(
+        client,
+        _database(settings),
+        embeddings,
+        settings.chunk_size,
+        settings.chunk_overlap,
+    ).run(settings.confluence_space_id or "", full=full)
+    typer.echo(json.dumps(result.__dict__, indent=2))
 
 
 def _sync_once(full: bool) -> None:
@@ -31,14 +44,7 @@ def _sync_once(full: bool) -> None:
         settings.confluence_api_token or "",
     )
     try:
-        result = Synchroniser(
-            client,
-            _database(settings),
-            embeddings,
-            settings.chunk_size,
-            settings.chunk_overlap,
-        ).run(settings.confluence_space_id or "", full=full)
-        typer.echo(json.dumps(result.__dict__, indent=2))
+        _run_sync(settings, client, embeddings, full)
     finally:
         client.close()
 
@@ -62,12 +68,23 @@ def sync(full: bool = typer.Option(False, "--full", help="Also detect deleted pa
 def poll() -> None:
     """Run incremental synchronization continuously."""
     settings = Settings.from_env(require_confluence=True)
-    while True:
-        try:
-            _sync_once(full=False)
-        except Exception:
-            logging.exception("Synchronization failed; the watermark was not advanced")
-        time.sleep(settings.poll_interval_seconds)
+    embeddings = create_embeddings(
+        settings.embedding_provider, settings.embedding_model, settings.embedding_dimensions
+    )
+    client = ConfluenceClient(
+        settings.confluence_base_url or "",
+        settings.confluence_email or "",
+        settings.confluence_api_token or "",
+    )
+    try:
+        while True:
+            try:
+                _run_sync(settings, client, embeddings, full=False)
+            except Exception:
+                logging.exception("Synchronization failed; the watermark was not advanced")
+            time.sleep(settings.poll_interval_seconds)
+    finally:
+        client.close()
 
 
 @app.command()
@@ -84,4 +101,3 @@ def search(question: str, limit: int = typer.Option(5, min=1, max=20)) -> None:
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     app()
-
