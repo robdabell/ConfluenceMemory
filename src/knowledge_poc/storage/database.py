@@ -25,7 +25,19 @@ class Database:
     def migrate(self, migrations_dir: Path) -> list[str]:
         applied: list[str] = []
         with psycopg.connect(self.database_url) as connection:
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migration (
+                    version text PRIMARY KEY,
+                    applied_at timestamptz NOT NULL DEFAULT now()
+                )
+                """
+            )
+            rows = connection.execute("SELECT version FROM schema_migration").fetchall()
+            applied_versions = {row[0] for row in rows}
             for path in sorted(migrations_dir.glob("*.sql")):
+                if path.name in applied_versions:
+                    continue
                 connection.execute(path.read_text(encoding="utf-8"))
                 connection.execute(
                     "INSERT INTO schema_migration(version) VALUES (%s) ON CONFLICT DO NOTHING",
