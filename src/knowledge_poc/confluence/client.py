@@ -48,6 +48,10 @@ class ConfluenceClient:
         storage = body.get("storage") or {}
         updated_at = datetime.fromisoformat(version["createdAt"].replace("Z", "+00:00"))
         webui = (item.get("_links") or {}).get("webui", "")
+        # Confluence Cloud returns webui as /spaces/... while the browser route
+        # lives below /wiki/. A leading slash passed directly to urljoin would
+        # otherwise discard that prefix.
+        webui_path = webui.removeprefix("/wiki/").lstrip("/")
         return SourcePage(
             page_id=str(item["id"]),
             space_id=str(item["spaceId"]),
@@ -55,8 +59,7 @@ class ConfluenceClient:
             title=item["title"],
             version=int(version["number"]),
             storage_html=storage.get("value", ""),
-            source_url=urljoin(f"{self.base_url}/wiki/", webui),
+            source_url=urljoin(f"{self.base_url}/wiki/", webui_path),
             updated_at=updated_at,
             metadata={"status": item.get("status"), "subtype": item.get("subtype")},
         )
-
