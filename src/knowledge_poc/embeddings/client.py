@@ -41,7 +41,10 @@ class LocalEmbeddings:
         from sentence_transformers import SentenceTransformer
 
         self.model = SentenceTransformer(model_name)
-        actual = self.model.get_sentence_embedding_dimension()
+        if hasattr(self.model, "get_embedding_dimension"):
+            actual = self.model.get_embedding_dimension()
+        else:
+            actual = self.model.get_sentence_embedding_dimension()
         if actual != expected_dimensions:
             raise ValueError(
                 f"Model {model_name} produces {actual} dimensions, "
