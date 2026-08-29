@@ -1,3 +1,5 @@
+from contextlib import contextmanager
+
 from knowledge_poc.storage import database as database_module
 from knowledge_poc.storage.database import Database
 
@@ -14,6 +16,7 @@ class FakeConnection:
     def __init__(self):
         self.versions = set()
         self.migration_bodies = []
+        self.queries = []
 
     def __enter__(self):
         return self
@@ -22,6 +25,7 @@ class FakeConnection:
         return False
 
     def execute(self, query, params=None):
+        self.queries.append(query)
         if query == "SELECT version FROM schema_migration":
             return FakeResult([(version,) for version in sorted(self.versions)])
         if query.startswith("INSERT INTO schema_migration"):
@@ -41,3 +45,18 @@ def test_migrate_skips_versions_already_applied(tmp_path, monkeypatch):
     assert database.migrate(tmp_path) == ["001_test.sql"]
     assert database.migrate(tmp_path) == []
     assert connection.migration_bodies == ["SELECT 'migration body';"]
+
+
+def test_search_casts_query_parameters_to_vector(monkeypatch):
+    connection = FakeConnection()
+    database = Database("postgresql://unused")
+
+    @contextmanager
+    def connect():
+        yield connection
+
+    monkeypatch.setattr(database, "connect", connect)
+
+    assert database.search([0.1, 0.2], limit=3) == []
+    search_query = connection.queries[-1]
+    assert search_query.count("%s::vector") == 2

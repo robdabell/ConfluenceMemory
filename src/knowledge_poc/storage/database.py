@@ -157,11 +157,11 @@ class Database:
             return connection.execute(
                 """
                 SELECT c.content, c.metadata, c.page_id, c.chunk_index,
-                       1 - (c.embedding <=> %s) AS similarity
+                       1 - (c.embedding <=> %s::vector) AS similarity
                 FROM knowledge_chunk c
                 JOIN source_page p ON p.page_id=c.page_id
                 WHERE p.deleted_at IS NULL
-                ORDER BY c.embedding <=> %s
+                ORDER BY c.embedding <=> %s::vector
                 LIMIT %s
                 """,
                 (query_vector, query_vector, limit),
