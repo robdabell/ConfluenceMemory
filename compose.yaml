@@ -47,8 +47,12 @@ services:
   oauth-probe:
     build: .
     env_file: .env
+    environment:
+      HF_HOME: /models
     ports:
       - "8765:8765"
+    volumes:
+      - model_cache:/models
     profiles: ["tools"]
     entrypoint: ["knowledge-poc"]
     command: ["probe"]

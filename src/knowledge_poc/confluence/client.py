@@ -71,6 +71,34 @@ class ConfluenceClient:
             url = urljoin(self.base_url, next_url) if next_url else ""
             params = None
 
+    def iter_page_summaries(self, space_id: str) -> Iterator[dict]:
+        """List current pages without requesting their bodies."""
+        url = f"{self.base_url}/wiki/api/v2/spaces/{space_id}/pages"
+        params: dict[str, str | int] | None = {
+            "sort": "title",
+            "status": "current",
+            "limit": 100,
+        }
+        while url:
+            response = self.client.get(url, params=params)
+            response.raise_for_status()
+            payload = response.json()
+            for item in payload.get("results", []):
+                version = item.get("version") or {}
+                yield {
+                    "id": str(item["id"]),
+                    "space_id": str(item["spaceId"]),
+                    "parent_id": str(item["parentId"]) if item.get("parentId") else None,
+                    "title": item["title"],
+                    "status": item.get("status"),
+                    "version": int(version["number"]) if version.get("number") else None,
+                    "updated_at": version.get("createdAt"),
+                    "url": self._page_url(item),
+                }
+            next_url = payload.get("_links", {}).get("next")
+            url = urljoin(self.base_url, next_url) if next_url else ""
+            params = None
+
     def get_space_by_key(self, space_key: str) -> dict:
         response = self.client.get(
             f"{self.base_url}/wiki/api/v2/spaces",
@@ -78,9 +106,10 @@ class ConfluenceClient:
         )
         response.raise_for_status()
         results = response.json().get("results", [])
-        if not results:
+        matches = [item for item in results if item.get("key") == space_key]
+        if not matches:
             raise ValueError(f"Confluence space {space_key!r} was not found or is not accessible")
-        return results[0]
+        return matches[0]
 
     def get_first_page(self, space_id: str) -> SourcePage | None:
         response = self.client.get(
@@ -96,11 +125,6 @@ class ConfluenceClient:
         body = item.get("body") or {}
         storage = body.get("storage") or {}
         updated_at = datetime.fromisoformat(version["createdAt"].replace("Z", "+00:00"))
-        webui = (item.get("_links") or {}).get("webui", "")
-        # Confluence Cloud returns webui as /spaces/... while the browser route
-        # lives below /wiki/. A leading slash passed directly to urljoin would
-        # otherwise discard that prefix.
-        webui_path = webui.removeprefix("/wiki/").lstrip("/")
         return SourcePage(
             page_id=str(item["id"]),
             space_id=str(item["spaceId"]),
@@ -108,7 +132,15 @@ class ConfluenceClient:
             title=item["title"],
             version=int(version["number"]),
             storage_html=storage.get("value", ""),
-            source_url=urljoin(f"{self.site_url}/wiki/", webui_path),
+            source_url=self._page_url(item),
             updated_at=updated_at,
             metadata={"status": item.get("status"), "subtype": item.get("subtype")},
         )
+
+    def _page_url(self, item: dict) -> str:
+        webui = (item.get("_links") or {}).get("webui", "")
+        # Confluence Cloud returns webui as /spaces/... while the browser route
+        # lives below /wiki/. A leading slash passed directly to urljoin would
+        # otherwise discard that prefix.
+        webui_path = webui.removeprefix("/wiki/").lstrip("/")
+        return urljoin(f"{self.site_url}/wiki/", webui_path)

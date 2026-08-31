@@ -9,7 +9,7 @@ import typer
 
 from knowledge_poc.config import Settings
 from knowledge_poc.confluence.client import ConfluenceClient
-from knowledge_poc.confluence.oauth import authenticate
+from knowledge_poc.confluence.oauth import OAuthCredentials, authenticate
 from knowledge_poc.embeddings.client import Embeddings, create_embeddings
 from knowledge_poc.ingestion.sync import Synchroniser
 from knowledge_poc.storage.database import Database
@@ -22,7 +22,11 @@ def _database(settings: Settings) -> Database:
 
 
 def _run_sync(
-    settings: Settings, client: ConfluenceClient, embeddings: Embeddings, full: bool
+    settings: Settings,
+    client: ConfluenceClient,
+    embeddings: Embeddings,
+    full: bool,
+    space_id: str | None = None,
 ) -> None:
     result = Synchroniser(
         client,
@@ -30,8 +34,30 @@ def _run_sync(
         embeddings,
         settings.chunk_size,
         settings.chunk_overlap,
-    ).run(settings.confluence_space_id or "", full=full)
+    ).run(space_id or settings.confluence_space_id or "", full=full)
     typer.echo(json.dumps(result.__dict__, indent=2))
+
+
+def _oauth_context(
+    settings: Settings, timeout: int
+) -> tuple[OAuthCredentials, ConfluenceClient, dict]:
+    credentials = authenticate(
+        settings.atlassian_client_id or "",
+        settings.atlassian_client_secret or "",
+        settings.atlassian_redirect_uri,
+        settings.confluence_base_url or "",
+        typer.echo,
+        timeout,
+    )
+    client = ConfluenceClient.oauth(
+        credentials.cloud_id, credentials.access_token, credentials.site_url
+    )
+    try:
+        space = client.get_space_by_key(settings.confluence_space_key or "")
+    except Exception:
+        client.close()
+        raise
+    return credentials, client, space
 
 
 def _sync_once(full: bool) -> None:
@@ -105,19 +131,8 @@ def search(question: str, limit: int = typer.Option(5, min=1, max=20)) -> None:
 def probe(timeout: int = typer.Option(300, min=30, max=900)) -> None:
     """Authenticate interactively and GET one page; never write to Confluence or PostgreSQL."""
     settings = Settings.from_env(require_oauth=True)
-    credentials = authenticate(
-        settings.atlassian_client_id or "",
-        settings.atlassian_client_secret or "",
-        settings.atlassian_redirect_uri,
-        settings.confluence_base_url or "",
-        typer.echo,
-        timeout,
-    )
-    client = ConfluenceClient.oauth(
-        credentials.cloud_id, credentials.access_token, credentials.site_url
-    )
+    credentials, client, space = _oauth_context(settings, timeout)
     try:
-        space = client.get_space_by_key(settings.confluence_space_key or "")
         page = client.get_first_page(str(space["id"]))
     finally:
         client.close()
@@ -139,6 +154,74 @@ def probe(timeout: int = typer.Option(300, min=30, max=900)) -> None:
         "token_persisted": False,
     }
     typer.echo(json.dumps(result, indent=2))
+
+
+@app.command("inspect")
+def inspect_space(timeout: int = typer.Option(300, min=30, max=900)) -> None:
+    """Inventory a space with GET requests only; never open PostgreSQL."""
+    settings = Settings.from_env(require_oauth=True)
+    credentials, client, space = _oauth_context(settings, timeout)
+    try:
+        pages = list(client.iter_page_summaries(str(space["id"])))
+    finally:
+        client.close()
+    typer.echo(
+        json.dumps(
+            {
+                "site": credentials.site_url,
+                "space": {
+                    "id": str(space["id"]),
+                    "key": space.get("key"),
+                    "name": space.get("name"),
+                },
+                "page_count": len(pages),
+                "pages": pages,
+                "page_bodies_read": 0,
+                "confluence_writes_performed": 0,
+                "postgresql_opened": False,
+                "token_persisted": False,
+            },
+            indent=2,
+        )
+    )
+
+
+@app.command("oauth-sync")
+def oauth_sync(
+    full: bool = typer.Option(
+        True, "--full/--incremental", help="Reconcile all pages or use the stored watermark"
+    ),
+    timeout: int = typer.Option(300, min=30, max=900),
+) -> None:
+    """Run one OAuth sync: GET from Confluence and write only to local PostgreSQL."""
+    settings = Settings.from_env(require_oauth=True)
+    credentials, client, space = _oauth_context(settings, timeout)
+    try:
+        embeddings = create_embeddings(
+            settings.embedding_provider,
+            settings.embedding_model,
+            settings.embedding_dimensions,
+        )
+        typer.echo(
+            json.dumps(
+                {
+                    "site": credentials.site_url,
+                    "space": {
+                        "id": str(space["id"]),
+                        "key": space.get("key"),
+                        "name": space.get("name"),
+                    },
+                    "mode": "full" if full else "incremental",
+                    "confluence_access": "GET only",
+                    "database_target": "local PostgreSQL",
+                    "token_persisted": False,
+                },
+                indent=2,
+            )
+        )
+        _run_sync(settings, client, embeddings, full, space_id=str(space["id"]))
+    finally:
+        client.close()
 
 
 if __name__ == "__main__":

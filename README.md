@@ -43,6 +43,24 @@ Open the printed URL, sign in, and consent. The probe resolves `S3CR` and reads 
 GET requests only. It does not start ingestion, open PostgreSQL, persist the access token, or
 request offline access. Do not run `sync` or `poll` until this output has been reviewed.
 
+Inventory every current page without requesting page bodies or opening PostgreSQL:
+
+```bash
+docker compose --profile tools run --rm --service-ports oauth-probe inspect
+```
+
+After reviewing that inventory, run one full OAuth ingestion. Confluence access remains GET-only;
+the command writes embeddings and source metadata only to the local PostgreSQL container:
+
+```bash
+docker compose up -d postgres
+docker compose --profile tools run --rm migrate
+docker compose --profile tools run --rm --service-ports oauth-probe oauth-sync --full
+```
+
+The unattended `poll` command intentionally remains Basic-Auth-only. Do not use it with this
+interactive, memory-only OAuth configuration.
+
 Run continuous five-minute polling:
 
 ```bash

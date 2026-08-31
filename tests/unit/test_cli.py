@@ -85,3 +85,54 @@ def test_probe_never_opens_database(monkeypatch):
 
     assert '"writes_performed": 0' in output[-1]
     assert '"token_persisted": false' in output[-1]
+
+
+def test_inspect_never_opens_database_or_reads_page_bodies(monkeypatch):
+    settings = SimpleNamespace()
+    credentials = SimpleNamespace(site_url="https://vstaging.atlassian.net")
+    client = SimpleNamespace(
+        iter_page_summaries=lambda _space_id: iter([{"id": "1", "title": "Page"}]),
+        close=lambda: None,
+    )
+    space = {"id": "42", "key": "S3CR", "name": "Clean room"}
+    output: list[str] = []
+
+    monkeypatch.setattr(cli.Settings, "from_env", lambda **_kwargs: settings)
+    monkeypatch.setattr(cli, "_oauth_context", lambda *_args: (credentials, client, space))
+    monkeypatch.setattr(
+        cli, "_database", lambda *_args: pytest.fail("inspect must not open PostgreSQL")
+    )
+    monkeypatch.setattr(cli.typer, "echo", lambda message: output.append(str(message)))
+
+    cli.inspect_space(timeout=30)
+
+    assert '"page_count": 1' in output[-1]
+    assert '"page_bodies_read": 0' in output[-1]
+    assert '"postgresql_opened": false' in output[-1]
+
+
+def test_oauth_sync_uses_resolved_space_id(monkeypatch):
+    settings = SimpleNamespace(
+        embedding_provider="mock",
+        embedding_model="model",
+        embedding_dimensions=64,
+    )
+    credentials = SimpleNamespace(site_url="https://vstaging.atlassian.net")
+    client = SimpleNamespace(close=lambda: None)
+    space = {"id": "42", "key": "S3CR", "name": "Clean room"}
+    embeddings = object()
+    calls: list[tuple] = []
+
+    monkeypatch.setattr(cli.Settings, "from_env", lambda **_kwargs: settings)
+    monkeypatch.setattr(cli, "_oauth_context", lambda *_args: (credentials, client, space))
+    monkeypatch.setattr(cli, "create_embeddings", lambda *_args: embeddings)
+    monkeypatch.setattr(cli.typer, "echo", lambda _message: None)
+    monkeypatch.setattr(
+        cli,
+        "_run_sync",
+        lambda *args, **kwargs: calls.append((*args, kwargs)),
+    )
+
+    cli.oauth_sync(full=True, timeout=30)
+
+    assert calls == [(settings, client, embeddings, True, {"space_id": "42"})]
