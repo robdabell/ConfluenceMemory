@@ -26,6 +26,23 @@ docker compose --profile tools run --rm cli sync --full
 docker compose --profile tools run --rm cli search "How long must a vessel operate offline?"
 ```
 
+## Interactive Entra-backed access (no API token)
+
+Atlassian OAuth 2.0 (3LO) delegates sign-in to the organisation's configured Entra SSO.
+The application never receives the user's Microsoft password. Create an OAuth integration in
+the Atlassian Developer Console with callback URL `http://localhost:8765/callback`, grant only
+`read:page:confluence` and `read:space:confluence`, then add its client ID and secret to `.env`.
+
+Run the deliberately isolated read-only probe:
+
+```bash
+docker compose --profile tools run --rm --service-ports oauth-probe
+```
+
+Open the printed URL, sign in, and consent. The probe resolves `S3CR` and reads one page using
+GET requests only. It does not start ingestion, open PostgreSQL, persist the access token, or
+request offline access. Do not run `sync` or `poll` until this output has been reviewed.
+
 Run continuous five-minute polling:
 
 ```bash
@@ -96,7 +113,7 @@ The mock embedding provider makes unit and plumbing tests repeatable and free. T
 ## Current deliberate limitations
 
 - One configured numeric Confluence space ID
-- Basic auth with email + API token for the PoC
+- Basic auth remains available for unattended polling; the read-only probe supports interactive OAuth
 - Whole-page chunk replacement rather than chunk-level differential updates
 - No attachment extraction
 - No page/space ACL replication or delegated access check

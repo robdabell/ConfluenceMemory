@@ -44,6 +44,16 @@ services:
     profiles: ["tools"]
     entrypoint: ["knowledge-poc"]
 
+  oauth-probe:
+    build: .
+    env_file: .env
+    ports:
+      - "8765:8765"
+    profiles: ["tools"]
+    entrypoint: ["knowledge-poc"]
+    command: ["probe"]
+    restart: "no"
+
 volumes:
   postgres_data:
   model_cache:

@@ -9,6 +9,7 @@ import typer
 
 from knowledge_poc.config import Settings
 from knowledge_poc.confluence.client import ConfluenceClient
+from knowledge_poc.confluence.oauth import authenticate
 from knowledge_poc.embeddings.client import Embeddings, create_embeddings
 from knowledge_poc.ingestion.sync import Synchroniser
 from knowledge_poc.storage.database import Database
@@ -98,6 +99,46 @@ def search(question: str, limit: int = typer.Option(5, min=1, max=20)) -> None:
     )
     rows = _database(settings).search(embeddings.embed_query(question), limit)
     typer.echo(json.dumps(rows, indent=2, default=str))
+
+
+@app.command()
+def probe(timeout: int = typer.Option(300, min=30, max=900)) -> None:
+    """Authenticate interactively and GET one page; never write to Confluence or PostgreSQL."""
+    settings = Settings.from_env(require_oauth=True)
+    credentials = authenticate(
+        settings.atlassian_client_id or "",
+        settings.atlassian_client_secret or "",
+        settings.atlassian_redirect_uri,
+        settings.confluence_base_url or "",
+        typer.echo,
+        timeout,
+    )
+    client = ConfluenceClient.oauth(
+        credentials.cloud_id, credentials.access_token, credentials.site_url
+    )
+    try:
+        space = client.get_space_by_key(settings.confluence_space_key or "")
+        page = client.get_first_page(str(space["id"]))
+    finally:
+        client.close()
+    result = {
+        "site": credentials.site_url,
+        "space": {"id": str(space["id"]), "key": space.get("key"), "name": space.get("name")},
+        "page": (
+            {
+                "id": page.page_id,
+                "title": page.title,
+                "version": page.version,
+                "url": page.source_url,
+                "body_characters_read": len(page.storage_html),
+            }
+            if page
+            else None
+        ),
+        "writes_performed": 0,
+        "token_persisted": False,
+    }
+    typer.echo(json.dumps(result, indent=2))
 
 
 if __name__ == "__main__":

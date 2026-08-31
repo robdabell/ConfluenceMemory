@@ -51,3 +51,37 @@ def test_poller_reuses_embedding_model_and_client(monkeypatch):
         cli.poll()
 
     assert calls == {"embeddings": 1, "client": 1, "sync": 1}
+
+
+def test_probe_never_opens_database(monkeypatch):
+    settings = SimpleNamespace(
+        atlassian_client_id="client-id",
+        atlassian_client_secret="client-secret",
+        atlassian_redirect_uri="http://localhost:8765/callback",
+        confluence_base_url="https://vstaging.atlassian.net",
+        confluence_space_key="S3CR",
+    )
+    credentials = SimpleNamespace(
+        access_token="memory-only-token",
+        cloud_id="cloud-id",
+        site_url="https://vstaging.atlassian.net",
+    )
+    client = SimpleNamespace(
+        get_space_by_key=lambda key: {"id": "42", "key": key, "name": "Clean room"},
+        get_first_page=lambda _space_id: None,
+        close=lambda: None,
+    )
+    output: list[str] = []
+
+    monkeypatch.setattr(cli.Settings, "from_env", lambda **_kwargs: settings)
+    monkeypatch.setattr(cli, "authenticate", lambda *_args: credentials)
+    monkeypatch.setattr(cli.ConfluenceClient, "oauth", lambda *_args: client)
+    monkeypatch.setattr(
+        cli, "_database", lambda *_args: pytest.fail("probe must not open PostgreSQL")
+    )
+    monkeypatch.setattr(cli.typer, "echo", lambda message: output.append(str(message)))
+
+    cli.probe(timeout=30)
+
+    assert '"writes_performed": 0' in output[-1]
+    assert '"token_persisted": false' in output[-1]

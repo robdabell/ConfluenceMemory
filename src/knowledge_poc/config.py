@@ -18,6 +18,10 @@ class Settings:
     confluence_email: str | None
     confluence_api_token: str | None
     confluence_space_id: str | None
+    atlassian_client_id: str | None
+    atlassian_client_secret: str | None
+    atlassian_redirect_uri: str
+    confluence_space_key: str | None
     embedding_provider: str
     embedding_model: str
     embedding_dimensions: int
@@ -26,7 +30,9 @@ class Settings:
     poll_interval_seconds: int
 
     @classmethod
-    def from_env(cls, require_confluence: bool = False) -> Settings:
+    def from_env(
+        cls, require_confluence: bool = False, require_oauth: bool = False
+    ) -> Settings:
         base_url = os.getenv("CONFLUENCE_BASE_URL")
         email = os.getenv("CONFLUENCE_EMAIL")
         token = os.getenv("CONFLUENCE_API_TOKEN")
@@ -36,6 +42,14 @@ class Settings:
             email = _required("CONFLUENCE_EMAIL")
             token = _required("CONFLUENCE_API_TOKEN")
             space_id = _required("CONFLUENCE_SPACE_ID")
+        client_id = os.getenv("ATLASSIAN_CLIENT_ID")
+        client_secret = os.getenv("ATLASSIAN_CLIENT_SECRET")
+        space_key = os.getenv("CONFLUENCE_SPACE_KEY")
+        if require_oauth:
+            base_url = _required("CONFLUENCE_BASE_URL")
+            client_id = _required("ATLASSIAN_CLIENT_ID")
+            client_secret = _required("ATLASSIAN_CLIENT_SECRET")
+            space_key = _required("CONFLUENCE_SPACE_KEY")
         return cls(
             database_url=os.getenv(
                 "DATABASE_URL", "postgresql://knowledge:knowledge@localhost:5432/knowledge_poc"
@@ -44,6 +58,12 @@ class Settings:
             confluence_email=email,
             confluence_api_token=token,
             confluence_space_id=space_id,
+            atlassian_client_id=client_id,
+            atlassian_client_secret=client_secret,
+            atlassian_redirect_uri=os.getenv(
+                "ATLASSIAN_REDIRECT_URI", "http://localhost:8765/callback"
+            ),
+            confluence_space_key=space_key,
             embedding_provider=os.getenv("EMBEDDING_PROVIDER", "local").lower(),
             embedding_model=os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5"),
             embedding_dimensions=int(os.getenv("EMBEDDING_DIMENSIONS", "384")),
