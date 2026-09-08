@@ -100,6 +100,17 @@ Do not mix dimensions or models in one database. If the model changes during the
 
 Incremental sync reads the stored watermark with a five-minute overlap. Page and structure hashes make repeated pages cheap. The watermark advances only after the run completes. A full sync also marks pages no longer returned by Confluence as deleted, which removes them from retrieval without destroying audit state.
 
+Every synchronization is recorded with its outcome, page/chunk changes, and a post-run
+snapshot of available pages, chunks, labelled pages, and distinct labels. Compare runs with:
+
+```bash
+docker compose --profile tools run --rm cli ingestion-history --limit 20
+```
+
+Confluence page labels are fetched with GET requests, stored on page and chunk metadata,
+and included as context when creating embeddings. Run a full synchronization to reconcile
+labels for pages already in the local corpus.
+
 For a real evaluation, schedule incremental polling every five minutes and a full reconciliation nightly.
 
 ## Security boundary
@@ -123,7 +134,7 @@ The mock embedding provider makes unit and plumbing tests repeatable and free. T
 ## Next slice
 
 1. Add mocked Confluence HTTP integration tests.
-2. Record ingestion runs and per-page failures.
+2. Add per-page failure details to the ingestion run log.
 3. Add PostgreSQL advisory locking for overlapping pollers.
 4. Add golden-question Recall@5 evaluation.
 5. Add a small user-test UI only after the ingestion lifecycle is stable.

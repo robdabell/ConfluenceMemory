@@ -18,6 +18,7 @@ def test_page_url_keeps_confluence_wiki_prefix():
     assert page.source_url == (
         "https://example.atlassian.net/wiki/spaces/ARCH/pages/123456"
     )
+    assert page.metadata["labels"] == ["offline"]
 
 
 def test_page_url_does_not_duplicate_existing_wiki_prefix():
@@ -104,3 +105,42 @@ def test_page_inventory_uses_get_without_requesting_bodies_and_follows_paginatio
     assert [request.method for request in requests] == ["GET", "GET"]
     assert "body-format" not in requests[0].url.params
     assert requests[1].url.params["cursor"] == "next"
+    assert all(
+        request.url.path.startswith("/ex/confluence/cloud-id/wiki/api/v2/")
+        for request in requests
+    )
+
+
+def test_page_ingestion_fetches_all_labels_with_get_requests():
+    fixture = Path("tests/fixtures/confluence_pages.json")
+    page_item = json.loads(fixture.read_text(encoding="utf-8"))["results"][0]
+    requests: list[httpx.Request] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        if request.url.path.endswith("/labels"):
+            if request.url.params.get("cursor"):
+                return httpx.Response(200, json={"results": [{"name": "vessel"}]})
+            return httpx.Response(
+                200,
+                json={
+                    "results": [{"name": "offline"}],
+                    "_links": {"next": "/wiki/api/v2/pages/123456/labels?cursor=next"},
+                },
+            )
+        return httpx.Response(200, json={"results": [page_item], "_links": {}})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as http_client:
+        client = ConfluenceClient(
+            "https://api.atlassian.com/ex/confluence/cloud-id",
+            site_url="https://vstaging.atlassian.net",
+            client=http_client,
+        )
+        pages = list(client.iter_pages("98765"))
+
+    assert pages[0].metadata["labels"] == ["offline", "vessel"]
+    assert [request.method for request in requests] == ["GET", "GET", "GET"]
+    assert all(
+        request.url.path.startswith("/ex/confluence/cloud-id/wiki/api/v2/")
+        for request in requests
+    )

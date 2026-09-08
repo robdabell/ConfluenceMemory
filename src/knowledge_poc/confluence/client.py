@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from dataclasses import replace
 from datetime import datetime
 from urllib.parse import urljoin
 
@@ -66,9 +67,12 @@ class ConfluenceClient:
                 page = self._map_page(item)
                 if since and page.updated_at <= since:
                     return
-                yield page
-            next_url = payload.get("_links", {}).get("next")
-            url = urljoin(self.base_url, next_url) if next_url else ""
+                yield replace(
+                    page,
+                    metadata={**page.metadata, "labels": self.get_page_labels(page.page_id)},
+                )
+            next_url = self._next_link(response, payload)
+            url = self._api_url(next_url) if next_url else ""
             params = None
 
     def iter_page_summaries(self, space_id: str) -> Iterator[dict]:
@@ -95,9 +99,28 @@ class ConfluenceClient:
                     "updated_at": version.get("createdAt"),
                     "url": self._page_url(item),
                 }
-            next_url = payload.get("_links", {}).get("next")
-            url = urljoin(self.base_url, next_url) if next_url else ""
+            next_url = self._next_link(response, payload)
+            url = self._api_url(next_url) if next_url else ""
             params = None
+
+    def get_page_labels(self, page_id: str) -> list[str]:
+        """Return every visible label for a page using GET requests only."""
+        url = f"{self.base_url}/wiki/api/v2/pages/{page_id}/labels"
+        params: dict[str, str | int] | None = {"limit": 250}
+        labels: set[str] = set()
+        while url:
+            response = self.client.get(url, params=params)
+            response.raise_for_status()
+            payload = response.json()
+            labels.update(
+                str(item["name"])
+                for item in payload.get("results", [])
+                if item.get("name")
+            )
+            next_url = self._next_link(response, payload)
+            url = self._api_url(next_url) if next_url else ""
+            params = None
+        return sorted(labels)
 
     def get_space_by_key(self, space_key: str) -> dict:
         response = self.client.get(
@@ -134,8 +157,28 @@ class ConfluenceClient:
             storage_html=storage.get("value", ""),
             source_url=self._page_url(item),
             updated_at=updated_at,
-            metadata={"status": item.get("status"), "subtype": item.get("subtype")},
+            metadata={
+                "status": item.get("status"),
+                "subtype": item.get("subtype"),
+                "labels": sorted(
+                    str(label["name"])
+                    for label in (item.get("labels") or {}).get("results", [])
+                    if label.get("name")
+                ),
+            },
         )
+
+    def _api_url(self, path: str) -> str:
+        if path.startswith("http://") or path.startswith("https://"):
+            return path
+        api_path = path.removeprefix("/wiki/").lstrip("/")
+        return urljoin(f"{self.base_url}/wiki/", api_path)
+
+    @staticmethod
+    def _next_link(response: httpx.Response, payload: dict) -> str | None:
+        body_link = payload.get("_links", {}).get("next")
+        header_link = response.links.get("next", {}).get("url")
+        return body_link or header_link
 
     def _page_url(self, item: dict) -> str:
         webui = (item.get("_links") or {}).get("webui", "")

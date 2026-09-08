@@ -127,6 +127,14 @@ def search(question: str, limit: int = typer.Option(5, min=1, max=20)) -> None:
     typer.echo(json.dumps(rows, indent=2, default=str))
 
 
+@app.command("ingestion-history")
+def ingestion_history(limit: int = typer.Option(20, min=1, max=200)) -> None:
+    """Show ingestion runs and corpus-size changes over time."""
+    settings = Settings.from_env()
+    rows = _database(settings).ingestion_history(limit)
+    typer.echo(json.dumps(rows, indent=2, default=str))
+
+
 @app.command()
 def probe(timeout: int = typer.Option(300, min=30, max=900)) -> None:
     """Authenticate interactively and GET one page; never write to Confluence or PostgreSQL."""

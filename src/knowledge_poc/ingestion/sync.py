@@ -39,6 +39,7 @@ class Synchroniser:
         self.chunk_overlap = chunk_overlap
 
     def run(self, space_id: str, full: bool = False) -> SyncResult:
+        mode = "full" if full else "incremental"
         scope = f"confluence-space:{space_id}"
         watermark = None if full else self.database.get_watermark(scope)
         # Small overlap protects timestamp-boundary updates; hashes make repeats cheap.
@@ -46,40 +47,66 @@ class Synchroniser:
         result = SyncResult()
         seen: set[str] = set()
         newest = watermark
+        run_id = self.database.start_ingestion_run(space_id, mode)
 
-        for page in self.confluence.iter_pages(space_id, since=since):
-            result.discovered += 1
-            seen.add(page.page_id)
-            newest = max(filter(None, [newest, page.updated_at]), default=page.updated_at)
-            text = clean_storage_html(page.storage_html, page.title)
-            content_digest = sha256_text(text)
-            structure_digest = structure_hash(page.title, page.parent_id, text)
-            previous = self.database.get_page_state(page.page_id)
-            if (
-                previous
-                and previous["content_hash"] == content_digest
-                and previous["structure_hash"] == structure_digest
-                and previous["deleted_at"] is None
-            ):
-                self.database.touch_page(page.page_id)
-                result.skipped += 1
-                continue
-            chunks = chunk_page(page.page_id, text, self.chunk_size, self.chunk_overlap)
-            vectors = self.embeddings.embed_documents([chunk.content for chunk in chunks])
-            self.database.replace_page(
-                page, content_digest, structure_digest, chunks, vectors
-            )
-            result.embedded_pages += 1
-            result.embedded_chunks += len(chunks)
-            logger.info(
-                "Indexed page %s version %s (%s chunks)",
-                page.page_id,
-                page.version,
-                len(chunks),
-            )
+        try:
+            for page in self.confluence.iter_pages(space_id, since=since):
+                result.discovered += 1
+                seen.add(page.page_id)
+                newest = max(filter(None, [newest, page.updated_at]), default=page.updated_at)
+                text = clean_storage_html(page.storage_html, page.title)
+                content_digest = sha256_text(text)
+                structure_digest = structure_hash(page.title, page.parent_id, text)
+                previous = self.database.get_page_state(page.page_id)
+                if (
+                    previous
+                    and previous["content_hash"] == content_digest
+                    and previous["structure_hash"] == structure_digest
+                    and previous["metadata"].get("labels", [])
+                    == page.metadata.get("labels", [])
+                    and previous["deleted_at"] is None
+                ):
+                    self.database.touch_page(page.page_id)
+                    result.skipped += 1
+                    continue
+                chunks = chunk_page(page.page_id, text, self.chunk_size, self.chunk_overlap)
+                labels = page.metadata.get("labels", [])
+                label_context = f"Labels: {', '.join(labels)}\n\n" if labels else ""
+                vectors = self.embeddings.embed_documents(
+                    [f"{label_context}{chunk.content}" for chunk in chunks]
+                )
+                self.database.replace_page(
+                    page, content_digest, structure_digest, chunks, vectors
+                )
+                result.embedded_pages += 1
+                result.embedded_chunks += len(chunks)
+                logger.info(
+                    "Indexed page %s version %s (%s chunks)",
+                    page.page_id,
+                    page.version,
+                    len(chunks),
+                )
 
-        if full:
-            result.tombstoned = self.database.tombstone_missing(space_id, seen)
-        if newest:
-            self.database.set_watermark(scope, newest)
+            if full:
+                result.tombstoned = self.database.tombstone_missing(space_id, seen)
+            if newest:
+                self.database.set_watermark(scope, newest)
+        except Exception as exc:
+            self._finish_run(run_id, result, "failed", str(exc))
+            raise
+        self._finish_run(run_id, result, "completed")
         return result
+
+    def _finish_run(
+        self, run_id, result: SyncResult, status: str, error: str | None = None
+    ) -> None:
+        self.database.finish_ingestion_run(
+            run_id,
+            status=status,
+            pages_discovered=result.discovered,
+            pages_embedded=result.embedded_pages,
+            chunks_embedded=result.embedded_chunks,
+            pages_skipped=result.skipped,
+            pages_tombstoned=result.tombstoned,
+            error=error,
+        )
