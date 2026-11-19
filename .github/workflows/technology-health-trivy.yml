@@ -1,0 +1,179 @@
+name: Technology Health - Trivy
+
+on:
+  push:
+    branches:
+      - main
+      - master
+    paths-ignore:
+      - "**/*.md"
+  pull_request:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: trivy-${{ github.repository }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: Read-only repository scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      TRIVY_CACHE_DIR: /tmp/trivy-cache
+    steps:
+      - name: Check out the exact revision
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install pinned Trivy
+        uses: aquasecurity/setup-trivy@81e514348e19b6112ce2a7e3ecbafe19c1e1f567 # v0.3.1
+        with:
+          version: v0.76.2
+          cache: true
+          token: ${{ github.token }}
+
+      - name: Refresh local vulnerability and checks data
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$TRIVY_CACHE_DIR" "$RUNNER_TEMP/trivy-empty"
+          trivy fs --cache-dir "$TRIVY_CACHE_DIR" --download-db-only --no-progress --skip-version-check
+          trivy fs --cache-dir "$TRIVY_CACHE_DIR" --download-java-db-only --no-progress --skip-version-check
+          trivy fs --cache-dir "$TRIVY_CACHE_DIR" --scanners misconfig --skip-db-update --skip-java-db-update --format json --output /dev/null --no-progress --skip-version-check "$RUNNER_TEMP/trivy-empty"
+
+      - name: Scan repository offline
+        shell: bash
+        run: |
+          set -euo pipefail
+          trivy fs . \
+            --cache-dir "$TRIVY_CACHE_DIR" \
+            --scanners vuln,misconfig,secret \
+            --format json \
+            --output "$RUNNER_TEMP/trivy-repository.raw.json" \
+            --offline-scan \
+            --skip-db-update \
+            --skip-java-db-update \
+            --skip-check-update \
+            --skip-version-check \
+            --show-suppressed \
+            --no-progress \
+            --exit-code 0
+
+      - name: Scan trusted image digest when declared
+        id: image
+        shell: bash
+        run: |
+          set -euo pipefail
+          status="Not applicable"
+          if [[ -f .trivy-image-digest.txt ]]; then
+            image_ref="$(tr -d '\r\n' < .trivy-image-digest.txt)"
+            if [[ "$image_ref" =~ ^[^[:space:]]+@sha256:[0-9a-f]{64}$ ]]; then
+              trivy image "$image_ref" \
+                --cache-dir "$TRIVY_CACHE_DIR" \
+                --scanners vuln,misconfig,secret \
+                --format json \
+                --output "$RUNNER_TEMP/trivy-image.raw.json" \
+                --offline-scan \
+                --skip-db-update \
+                --skip-java-db-update \
+                --skip-check-update \
+                --skip-version-check \
+                --show-suppressed \
+                --no-progress \
+                --exit-code 0
+              status="Scanned"
+            else
+              status="Scanner unavailable: invalid digest declaration"
+            fi
+          fi
+          printf 'status=%s\n' "$status" >> "$GITHUB_OUTPUT"
+
+      - name: Create redacted findings and coverage
+        shell: bash
+        env:
+          IMAGE_STATUS: ${{ steps.image.outputs.status }}
+        run: |
+          set -euo pipefail
+          mkdir -p trivy-health
+          jq --arg repository "$GITHUB_REPOSITORY" --arg commit "$GITHUB_SHA" '
+            def normalized:
+              .Results[]? as $result |
+              ($result.Vulnerabilities[]? | {
+                repository: $repository,
+                commit: $commit,
+                target: $result.Target,
+                scanner: "vulnerability",
+                rule: .VulnerabilityID,
+                fingerprint: [$repository, $result.Target, "vulnerability", .VulnerabilityID, .PkgName] | join("|"),
+                package: .PkgName,
+                installedVersion: .InstalledVersion,
+                fixedVersion: (.FixedVersion // ""),
+                severity: .Severity,
+                title: (.Title // .VulnerabilityID)
+              }),
+              ($result.Misconfigurations[]? | {
+                repository: $repository,
+                commit: $commit,
+                target: $result.Target,
+                scanner: "misconfiguration",
+                rule: .ID,
+                fingerprint: [$repository, $result.Target, "misconfiguration", .ID, $result.Target] | join("|"),
+                path: $result.Target,
+                severity: .Severity,
+                title: (.Title // .ID),
+                resolution: (.Resolution // "")
+              }),
+              ($result.Secrets[]? | {
+                repository: $repository,
+                commit: $commit,
+                target: $result.Target,
+                scanner: "secret",
+                rule: (.RuleID // .Category // "secret"),
+                fingerprint: [$repository, $result.Target, "secret", (.RuleID // .Category // "secret"), $result.Target] | join("|"),
+                path: $result.Target,
+                severity: (.Severity // "UNKNOWN"),
+                title: (.Title // "Potential secret"),
+                redacted: true
+              });
+            {schemaVersion: 1, repository: $repository, commit: $commit, suppressedCount: ((.ExperimentalModifiedFindings // []) | length), findings: [normalized]}
+          ' "$RUNNER_TEMP/trivy-repository.raw.json" > trivy-health/repository.json
+
+          if [[ -f "$RUNNER_TEMP/trivy-image.raw.json" ]]; then
+            jq --arg repository "$GITHUB_REPOSITORY" --arg commit "$GITHUB_SHA" '
+              def normalized:
+                .Results[]? as $result |
+                ($result.Vulnerabilities[]? | {repository: $repository, commit: $commit, target: $result.Target, scanner: "image-vulnerability", rule: .VulnerabilityID, fingerprint: [$repository, $result.Target, "image-vulnerability", .VulnerabilityID, .PkgName] | join("|"), package: .PkgName, installedVersion: .InstalledVersion, fixedVersion: (.FixedVersion // ""), severity: .Severity, title: (.Title // .VulnerabilityID)}),
+                ($result.Misconfigurations[]? | {repository: $repository, commit: $commit, target: $result.Target, scanner: "image-misconfiguration", rule: .ID, fingerprint: [$repository, $result.Target, "image-misconfiguration", .ID, $result.Target] | join("|"), path: $result.Target, severity: .Severity, title: (.Title // .ID), resolution: (.Resolution // "")}),
+                ($result.Secrets[]? | {repository: $repository, commit: $commit, target: $result.Target, scanner: "image-secret", rule: (.RuleID // .Category // "secret"), fingerprint: [$repository, $result.Target, "image-secret", (.RuleID // .Category // "secret"), $result.Target] | join("|"), path: $result.Target, severity: (.Severity // "UNKNOWN"), title: (.Title // "Potential secret"), redacted: true});
+              {schemaVersion: 1, repository: $repository, commit: $commit, suppressedCount: ((.ExperimentalModifiedFindings // []) | length), findings: [normalized]}
+            ' "$RUNNER_TEMP/trivy-image.raw.json" > trivy-health/image.json
+          fi
+
+          db_updated="$(jq -r '.UpdatedAt // .DownloadedAt // .CreatedAt // "unknown"' "$TRIVY_CACHE_DIR/db/metadata.json" 2>/dev/null || printf unknown)"
+          jq -n \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg commit "$GITHUB_SHA" \
+            --arg generatedAt "$(date -u +%FT%TZ)" \
+            --arg trivyVersion "$(trivy --version | head -n 1)" \
+            --arg databaseUpdatedAt "$db_updated" \
+            --arg imageStatus "$IMAGE_STATUS" \
+            '{schemaVersion: 1, repository: $repository, commit: $commit, generatedAt: $generatedAt, trivyVersion: $trivyVersion, databaseUpdatedAt: $databaseUpdatedAt, repositoryStatus: "Scanned", imageStatus: $imageStatus, secretMatchesPersisted: false}' \
+            > trivy-health/coverage.json
+
+          rm -f "$RUNNER_TEMP/trivy-repository.raw.json" "$RUNNER_TEMP/trivy-image.raw.json"
+
+      - name: Upload sanitized health evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: technology-health-trivy-${{ github.run_id }}
+          path: trivy-health/
+          if-no-files-found: error
+          include-hidden-files: false
+          retention-days: 14
