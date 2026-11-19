@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Canvas Showdown</title>
+    <meta
+      name="description"
+      content="Cursor Canvases, ChatGPT Sites, Claude artifacts and Gemini Canvas compared with an overlay spider chart, per-product charts, a score grid and a sample Tesla and SpaceX dashboard."
+    />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Familjen+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main class="page wrap">
+      <header>
+        <p class="eyebrow">17 Oct 2026 · AI page builders</p>
+        <h1>Canvas Showdown</h1>
+        <p class="lede">
+          How Cursor Canvases, ChatGPT Sites, Claude artifacts and Gemini Canvas
+          compare for building something and sharing it. An overlay spider
+          chart, one chart per product, a score grid and a sample Tesla and
+          SpaceX dashboard follow the table.
+        </p>
+      </header>
+
+      <section aria-label="The four products">
+        <div class="four-line" data-four></div>
+      </section>
+
+      <section aria-labelledby="side-by-side">
+        <h2 id="side-by-side">Side by side</h2>
+        <p class="table-note">
+          Scroll sideways on a phone. The label column stays in place.
+        </p>
+        <div class="table-scroll" data-cmp></div>
+        <p class="footnote">
+          Most details come from third-party write-ups of fast-moving features,
+          so check each vendor's docs before you commit. The Claude storage and
+          sharing details are the least certain.
+        </p>
+      </section>
+
+      <section aria-labelledby="overlay" data-overlay>
+        <h2 id="overlay">All four overlaid</h2>
+        <p class="section-intro">
+          The same scores on one chart. Some colors sit close together, so each
+          product also has its own line style and marker shape. Tap a name to
+          isolate it, or hover a spoke to compare that capability.
+        </p>
+        <div class="legend-row" data-legend></div>
+        <div class="chart-frame" data-chart></div>
+        <p class="spoke-readout" data-readout>
+          Hover or tap a spoke to compare the four on that capability.
+        </p>
+      </section>
+
+      <section aria-labelledby="capability" data-capability>
+        <h2 id="capability">Capability map</h2>
+        <p class="section-intro">
+          One spider chart per product, scored 0 to 5 on seven capabilities. The
+          grey outlines behind each chart are the other three, so you can see
+          where it leads and where it trails. Hover or tap a point for its
+          score.
+        </p>
+        <div class="cap-grid" data-cap-grid></div>
+        <p class="footnote">
+          Scores are my judgment from the facts in the table above, not
+          benchmarks. Refresh and dev fit are the most subjective. Gemini is
+          scored on Canvas alone, not AI Studio.
+        </p>
+      </section>
+
+      <section aria-labelledby="scores">
+        <h2 id="scores">Score grid</h2>
+        <p class="section-intro">
+          Every score behind the charts, with totals out of 35.
+        </p>
+        <div class="heat-scroll" data-heat></div>
+        <div class="heat-key" data-heat-key></div>
+      </section>
+
+      <section aria-labelledby="pick">
+        <h2 id="pick">Pick by job</h2>
+        <dl class="jobs" data-jobs></dl>
+      </section>
+
+      <section aria-labelledby="prices" data-dash>
+        <h2 id="prices">Tesla and SpaceX closing prices</h2>
+        <p class="section-intro">
+          A sample of what these builders produce. Both lines are indexed to 100
+          at the first day shown, so their different price levels compare
+          fairly.
+        </p>
+        <div class="dash">
+          <aside class="notice" role="note">
+            <strong>Snapshot, not a live feed</strong>
+            This page cannot call market-data services, so it shows closing
+            prices through Fri 16 Oct 2026. Refreshing means republishing with
+            new closes. Sample data for fun, not investment advice.
+          </aside>
+
+          <div class="stat-tiles">
+            <article class="stat-tile" data-tile-tsla></article>
+            <article class="stat-tile" data-tile-spcx></article>
+          </div>
+
+          <div class="controls">
+            <div class="control-group">
+              <span class="control-label">Window</span>
+              <div class="seg" data-window role="group" aria-label="Session window">
+                <button type="button" data-n="50" aria-pressed="true">50 days</button>
+                <button type="button" data-n="30" aria-pressed="false">30</button>
+                <button type="button" data-n="10" aria-pressed="false">10</button>
+              </div>
+            </div>
+            <div class="control-group">
+              <span class="control-label">View</span>
+              <div class="seg" data-view role="group" aria-label="Chart or table">
+                <button type="button" data-view="chart" aria-pressed="true">Chart</button>
+                <button type="button" data-view="table" aria-pressed="false">Table</button>
+              </div>
+            </div>
+          </div>
+
+          <div data-chart-view>
+            <div class="price-chart-wrap">
+              <div data-price-svg></div>
+              <div class="price-tooltip" data-tooltip></div>
+            </div>
+            <p class="chart-caption" data-caption></p>
+          </div>
+
+          <div class="price-table-wrap hidden" data-table-view></div>
+        </div>
+      </section>
+
+      <section aria-labelledby="sources">
+        <h2 id="sources">Sources</h2>
+        <ul class="sources" data-sources></ul>
+      </section>
+    </main>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
